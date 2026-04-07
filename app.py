@@ -29,19 +29,27 @@ class PredictRequest(BaseModel):
 
 # --- 2. HÀM BỔ TRỢ (TIỀN XỬ LÝ VÀ HẬU XỬ LÝ) ---
 def normalize_coordinates(points):
-    """Chuẩn hóa GPS thực tế về khoảng 0.0 - 1.0 cho AI"""
+    """Chuẩn hóa GPS thực tế về khoảng 0.0 - 1.0 nhưng GIỮ NGUYÊN TỶ LỆ BẢN ĐỒ (Uniform Scaling)"""
     xs = [p.x for p in points]
     ys = [p.y for p in points]
     min_x, max_x = min(xs), max(xs)
     min_y, max_y = min(ys), max(ys)
     
-    range_x = max_x - min_x if max_x > min_x else 1.0
-    range_y = max_y - min_y if max_y > min_y else 1.0
+    range_x = max_x - min_x
+    range_y = max_y - min_y
+    
+    # TÌM KHOẢNG CÁCH LỚN NHẤT ĐỂ LÀM HỆ SỐ CHIA CHUNG
+    max_range = max(range_x, range_y)
+    
+    # Tránh lỗi chia cho 0 nếu tất cả các điểm trùng nhau
+    if max_range == 0:
+        max_range = 1.0
     
     normalized_list = []
     for p in points:
-        norm_x = (p.x - min_x) / range_x
-        norm_y = (p.y - min_y) / range_y
+        # Chia cả X và Y cho CÙNG MỘT SỐ max_range để không làm méo bản đồ
+        norm_x = (p.x - min_x) / max_range
+        norm_y = (p.y - min_y) / max_range
         normalized_list.append([norm_x, norm_y])
         
     return normalized_list
