@@ -1,97 +1,75 @@
 import torch
-import os
-import sys
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List
+import sys
+import os
 
-# Giúp Python tìm thấy các thư mục 'nets' và 'utils'
+# Đảm bảo Python tìm thấy các module trong folder
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from utils.functions import load_model
 
-from utils import load_model
+app = FastAPI(title="Thực tế hóa TSP API")
 
-# --- 1. Khởi tạo FastAPI Application ---
-app = FastAPI(
-    title="TSP Optimization API", 
-    description="API giải quyết bài toán Người giao hàng (TSP) bằng Attention Model với số lượng điểm biến thiên."
-)
-
-# --- 2. Định nghĩa cấu trúc dữ liệu đầu vào (Pydantic Models) ---
-# Yêu cầu: "Cần có kiểm tra dữ liệu đầu vào ở mức cơ bản"
+# 1. Định nghĩa cấu trúc dữ liệu
 class Location(BaseModel):
-    id: int = Field(..., description="ID của địa điểm")
-    x: float = Field(..., ge=0.0, le=1.0, description="Tọa độ X (chuẩn hóa từ 0 đến 1)")
-    y: float = Field(..., ge=0.0, le=1.0, description="Tọa độ Y (chuẩn hóa từ 0 đến 1)")
+    id: int
+    x: float = Field(..., ge=0.0, le=1.0)
+    y: float = Field(..., ge=0.0, le=1.0)
 
 class PredictRequest(BaseModel):
-    # Yêu cầu: Ít nhất 3 điểm mới có thể tối ưu lộ trình
-    locations: List[Location] = Field(..., min_items=3, description="Danh sách các địa điểm cần đi qua (tối thiểu 3)")
+    # Điểm User đang đứng
+    start_location: Location 
+    # Danh sách các điểm cần đến giao hàng/thăm quan
+    destinations: List[Location] = Field(..., min_items=1)
 
-# --- 3. Nạp Model khi khởi động ---
-MODEL_PATH = "pretrained/epoch-99.pt" # Đảm bảo file này tồn tại
+# 2. Nạp Model
+MODEL_PATH = "pretrained/epoch-99.pt"
 try:
     model, _ = load_model(MODEL_PATH)
     model.eval()
     MODEL_READY = True
-except Exception as e:
-    print(f"Lỗi nạp mô hình: {e}")
+except:
     MODEL_READY = False
 
-# --- 4. CÁC ĐẦU MÚT API (ENDPOINTS) ---
-
-# Yêu cầu: GET / (Thông tin giới thiệu ngắn gọn)
-@app.get("/")
-async def root():
-    return {
-        "system_name": "AI Routing Optimization Service",
-        "description": "Hệ thống nhận danh sách tọa độ biến thiên và trả về thứ tự di chuyển tối ưu nhất bằng trí tuệ nhân tạo.",
-        "endpoints": ["/health", "/predict"]
-    }
-
-# Yêu cầu: GET /health (Kiểm tra trạng thái hệ thống)
-@app.get("/health")
-async def health_check():
-    if MODEL_READY:
-        return {"status": "ok", "model_state": "loaded and ready"}
-    else:
-        # Xử lý lỗi nếu model chưa sẵn sàng
-        raise HTTPException(status_code=503, detail="Service Unavailable: Mô hình chưa được nạp thành công.")
-
-# Yêu cầu: POST /predict (Nhận dữ liệu, gọi mô hình, trả kết quả JSON)
 @app.post("/predict")
-async def predict_route(request: PredictRequest):
+async def predict(request: PredictRequest):
     if not MODEL_READY:
-        raise HTTPException(status_code=503, detail="Service Unavailable: Hệ thống AI đang bảo trì.")
+        raise HTTPException(status_code=503, detail="Model chưa sẵn sàng")
 
-    locations = request.locations
-    n_nodes = len(locations)
+    # BƯỚC 1: Hợp nhất dữ liệu. 
+    # Ta luôn coi start_location là điểm đầu tiên (index 0)
+    all_points = [request.start_location] + request.destinations
+    n_nodes = len(all_points)
+    
+    # BƯỚC 2: Chuyển thành Tensor [1, N, 2]
+    coords = torch.tensor([[[p.x, p.y] for p in all_points]], dtype=torch.float32)
 
     try:
-        # Chuẩn bị Tensor đầu vào từ danh sách tọa độ (Input Tensor)
-        coords = torch.tensor([[[loc.x, loc.y] for loc in locations]], dtype=torch.float32)
-        
         with torch.no_grad():
-            # 1. Cài đặt chiến lược giải (Greedy: chọn điểm tốt nhất ở mỗi bước)
             model.set_decode_type("greedy")
-            
-            # 2. Suy luận và yêu cầu trả về thứ tự điểm (return_pi=True)
+            # AI trả về: chi phí, xác suất, và lộ trình (pi)
             cost, _, pi = model(coords, return_pi=True)
         
-        # Lấy thứ tự index
+        # pi là mảng các index, ví dụ: [2, 0, 3, 1]
         tour_indices = pi[0].cpu().numpy().tolist()
+
+        # BƯỚC 3: "XOAY MẢNG" ĐỂ ĐƯA ĐIỂM BẮT ĐẦU LÊN ĐẦU
+        # Vì all_points[0] là start_location, ta tìm xem số 0 nằm ở đâu trong tour_indices
+        start_position_in_tour = tour_indices.index(0)
         
-        # Yêu cầu: "Kết quả trả về phải rõ ràng, có cấu trúc"
-        optimized_order = [locations[i].model_dump() for i in tour_indices]
-        
+        # Xoay mảng sao cho số 0 đứng đầu
+        # Ví dụ: [2, 0, 3, 1] -> [0, 3, 1, 2]
+        final_indices = tour_indices[start_position_in_tour:] + tour_indices[:start_position_in_tour]
+
+        # BƯỚC 4: Trả về kết quả đã sắp xếp
+        optimized_order = [all_points[i].model_dump() for i in final_indices]
+
         return {
             "status": "success",
-            "message": "Lộ trình đã được tối ưu hóa thành công.",
-            "total_locations": n_nodes,
-            "optimized_order": optimized_order
+            "start_point_id": request.start_location.id,
+            "total_distance": float(cost[0]), # Tổng quãng đường AI tính toán
+            "optimized_route": optimized_order
         }
-
-    # Yêu cầu: "Xử lý hợp lý các trường hợp lỗi trong quá trình suy luận"
-    except RuntimeError as re:
-        raise HTTPException(status_code=500, detail=f"Lỗi phần cứng/Tensor trong quá trình suy luận: {str(re)}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi hệ thống không xác định: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
