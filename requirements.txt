@@ -1,0 +1,10 @@
+# Web Framework & API Validation
+fastapi
+pydantic
+uvicorn
+
+# AI Model & Matrix Operations
+torch
+
+# Client Testing (Dùng cho test_api.py)
+requests

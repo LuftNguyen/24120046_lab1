@@ -2,16 +2,17 @@ import requests
 import json
 
 # CHÚ Ý: Thay đoạn URL này bằng link Pinggy thực tế của bạn
-API_URL = "https://jjgsh-35-238-127-76.run.pinggy-free.link/predict"
+API_URL = "https://lzoga-35-238-127-76.run.pinggy-free.link/predict"
 
 # Giả lập người dùng gửi lên 5 điểm cần giao hàng
 payload = {
-    "locations": [
-        {"id": 1, "x": 0.10, "y": 0.90},
-        {"id": 2, "x": 0.50, "y": 0.50},
-        {"id": 3, "x": 0.90, "y": 0.10},
-        {"id": 4, "x": 0.20, "y": 0.20},
-        {"id": 5, "x": 0.80, "y": 0.80}
+    "start_location": {"id": 0, "x": 0.8, "y": 0.2}, # User đang ở giữa bản đồ
+    "destinations": [
+        {"id": 1, "x": 0.1, "y": 0.1},
+        {"id": 2, "x": 0.9, "y": 0.4},
+        {"id": 3, "x": 0.8, "y": 0.5},
+        {"id": 4, "x": 0.9, "y": 0.1},
+        {"id": 5, "x": 0.5, "y": 0.4}
     ]
 }
 
